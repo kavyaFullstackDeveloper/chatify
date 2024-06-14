@@ -1,67 +1,65 @@
 import Conversation from "../models/conversation.model.js";
 import Message from "../models/message.model.js";
+import { getReceiverSocketId, io } from "../socket/socket.js";
 
 export const sendMessage = async (req, res) => {
     try{
         const {message} = req.body;
-        const {id: receivedId}= req.params;
+        const {id: receiverId}= req.params;
         const senderId = req.user._id;
 
         let conversation = await Conversation.findOne({
-            participants: {$all: [senderId, receivedId]},
-        }) 
+            participants: { $all: [senderId, receiverId] },
+        }); 
 
         if(!conversation) {
             conversation =  await Conversation.create({
-                participants: [senderId, receivedId], 
+                participants: [senderId, receiverId], 
             }) 
         }
 
         const newMessage = new Message({
             senderId,
-            receivedId,
+            receiverId,
             message, 
-        }) 
+        }); 
 
         if(newMessage) {
             conversation.messages.push(newMessage._id); 
         } 
-
-        //socket io functionality will go here 
-
-        /* await conversation.save();
-        await newMessage.save();
- */
-        //this will run in parallel 
+        //SOCKET 
+        
+        //this will run in parallel
         await Promise.all([conversation.save(), newMessage.save()]);
-
-
+        const receiverSocketId = getReceiverSocketId(receiverId);
+        if(receiverSocketId){
+            io.to(receiverSocketId).emit("newMessage",newMessage)
+        }
         res.status(201).json(newMessage); 
 
     } catch (err){
         console.log("Err in sendMessage controller: ", err.message)
         res.status(500).json({err: "Internal server err"});
     }
-}
+};
 
-
-export const getMessage= async (req, res) => {
-    try{
+export const getMessage = async (req, res) => {
+    try {
+        
         const {id: userToChatId} = req.params;
         const senderId = req.user._id;
-
         const conversation = await Conversation.findOne({
-            participants: {$all: [senderId, userToChatId]}, 
+            participants: { $all: [senderId, userToChatId]},
         }).populate("messages");
-
+        
         if(!conversation) return res.status(200).json([]);
-
         const messages = conversation.messages;
 
         res.status(200).json(messages);
 
-    } catch (err) {
-        console.log("Err in sendMessage controller: ", err.message);
+    } catch (error) {
+        console.log("Err in sendMessage controller: ", error.message);
         res.status(500).json({err: "Internal server err"});
+        
     }
 };
